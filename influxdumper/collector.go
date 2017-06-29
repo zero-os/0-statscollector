@@ -3,6 +3,7 @@ package influxdumper
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -34,10 +35,9 @@ type InfluxDumper struct {
 }
 
 const (
-	batch      = 1
+	batch      = 1000
 	queue_min  = "statistics:300"
 	queue_hour = "statistics:3600"
-	timeout    = "120"
 	policy     = "dumper"
 )
 
@@ -90,7 +90,7 @@ func (in InfluxDumper) Dump() error {
 		batchPoints.SetRetentionPolicy(policy)
 
 		for len(batchPoints.Points()) < batch {
-			reply, err := redis.ByteSlices(con.Do("BLPOP", queue_min, queue_hour, timeout))
+			reply, err := redis.ByteSlices(con.Do("BLPOP", queue_min, queue_hour, 0))
 			if err != nil {
 				log.Errorln("Error reading from redis")
 				return err
@@ -102,6 +102,7 @@ func (in InfluxDumper) Dump() error {
 				log.Errorln("Error unmarshaling redis reply")
 				return err
 			}
+
 			tags := []string{}
 			if stats.Tags != "" {
 				tags = strings.Split(stats.Tags, " ")
@@ -112,7 +113,13 @@ func (in InfluxDumper) Dump() error {
 				result := strings.Split(tag, "=")
 				tagsMap[result[0]] = result[1]
 			}
-			tagsMap["node"] = in.Node
+
+			hostname, err := os.Hostname()
+			if err != nil {
+				log.Errorln("Error getting hostname")
+				return err
+			}
+			tagsMap["node"] = hostname
 
 			keys := strings.Split(stats.Key, "@")
 			stats.Key = keys[0]
@@ -141,6 +148,7 @@ func (in InfluxDumper) Dump() error {
 				}
 			}
 		}
+
 
 		if err := in.Client.Write(batchPoints); err != nil {
 			log.Errorln("Error writing points to influx db")

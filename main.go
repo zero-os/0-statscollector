@@ -8,7 +8,7 @@ import (
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/urfave/cli"
-	"github.com/zero-os/dumper/influxdumper"
+	"github.com/zero-os/0-statscollector/influxdumper"
 )
 
 func main() {
@@ -27,7 +27,7 @@ func main() {
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "node",
-			Value: "192.168.122.89:6379",
+			Value: "127.0.0.1:6379",
 			Destination: &node,
 			Usage: "0core node to read statistics from",
 		},
@@ -70,6 +70,7 @@ func main() {
 			log.Errorln(err)
 			return
 		}
+		defer influxClient.Close()
 
 		ifl := influxdumper.InfluxDumper{
 			Node: node,
