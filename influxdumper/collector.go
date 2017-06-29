@@ -45,7 +45,7 @@ func (in InfluxDumper) Start() error {
 	q := influx.NewQuery("SHOW DATABASES", "", "")
 	response, err := in.handleRequest(q)
 	if err != nil {
-		log.Errorln("Err listing databases")
+		log.Errorln("Err listing databases: ", err)
 		return err
 	}
 
@@ -61,7 +61,7 @@ func (in InfluxDumper) Start() error {
 		q := influx.NewQuery(fmt.Sprintf("CREATE DATABASE %v", in.Database), "", "")
 		_, err := in.handleRequest(q)
 		if err != nil {
-			log.Errorln("Error creating database")
+			log.Errorln("Error creating database: ", err)
 			return err
 		}
 	}
@@ -69,7 +69,7 @@ func (in InfluxDumper) Start() error {
 	q = influx.NewQuery(fmt.Sprintf("CREATE RETENTION POLICY \"%v\" ON %v DURATION %v REPLICATION 1", policy, in.Database, in.Retention), "", "")
 	response, err = in.handleRequest(q)
 	if err != nil {
-		log.Errorln("Err listing databases")
+		log.Errorln("Error creating retention policy: ", err)
 		return err
 	}
 
@@ -82,24 +82,27 @@ func (in InfluxDumper) Dump() error {
 	defer con.Close()
 
 	for {
-		batchPoints, err := influx.NewBatchPoints(influx.BatchPointsConfig{Database: in.Database, Precision: "s"})
+		batchPoints, err := influx.NewBatchPoints(influx.BatchPointsConfig{
+			Database: in.Database,
+			Precision: "s",
+		})
 		if err != nil {
-			log.Errorln("Error creating batchpoints")
+			log.Errorln("Error creating batchpoints: ", err)
 			return err
 		}
-		batchPoints.SetRetentionPolicy(policy)
+		//batchPoints.SetRetentionPolicy(policy)
 
 		for len(batchPoints.Points()) < batch {
 			reply, err := redis.ByteSlices(con.Do("BLPOP", queue_min, queue_hour, 0))
 			if err != nil {
-				log.Errorln("Error reading from redis")
+				log.Errorln("Error reading from redis: ", err)
 				return err
 			}
 
 			queue := string(reply[0])
 			var stats Stats
 			if err := json.Unmarshal(reply[1], &stats); err != nil {
-				log.Errorln("Error unmarshaling redis reply")
+				log.Errorln("Error unmarshaling redis reply: ", err)
 				return err
 			}
 
@@ -126,32 +129,25 @@ func (in InfluxDumper) Dump() error {
 			fmt.Println(stats)
 
 			if queue == queue_min {
-				if point, err := NewPoint(
-					fmt.Sprintf("%v|m", stats.Key), stats.Start, stats.Avg, stats.Max, tagsMap); err != nil {
-					log.Errorln(err)
-				} else {
-					batchPoints.AddPoint(point)
+				if mPoint, err := NewPoint(
+					fmt.Sprintf("%v|m", stats.Key), stats.Start, stats.Avg, stats.Max, tagsMap); err == nil {
+					batchPoints.AddPoint(mPoint)
 				}
 
-				if point, err := NewPoint(
-					fmt.Sprintf("%v|t", stats.Key), stats.Start, stats.Total, stats.Max, tagsMap); err != nil {
-					log.Errorln(err)
-				} else {
-					batchPoints.AddPoint(point)
+				if tPoint, err := NewPoint(
+					fmt.Sprintf("%v|t", stats.Key), stats.Start, stats.Total, stats.Max, tagsMap); err == nil {
+					batchPoints.AddPoint(tPoint)
 				}
 			} else {
-				if point, err := NewPoint(
-					fmt.Sprintf("%v|h", stats.Key), stats.Start, stats.Avg, stats.Max, tagsMap); err != nil {
-					log.Errorln(err)
-				} else {
-					batchPoints.AddPoint(point)
+				if hPoint, err := NewPoint(
+					fmt.Sprintf("%v|h", stats.Key), stats.Start, stats.Avg, stats.Max, tagsMap); err == nil {
+					batchPoints.AddPoint(hPoint)
 				}
 			}
 		}
 
-
 		if err := in.Client.Write(batchPoints); err != nil {
-			log.Errorln("Error writing points to influx db")
+			log.Errorln("Error writing points to influx db: ", err)
 		}
 	}
 
@@ -179,7 +175,7 @@ func NewPoint(key string, timestamp int64, value float64, max float64, tags map[
 
 	point, err := influx.NewPoint(key, tags, fields, time.Unix(timestamp, 0))
 	if err != nil {
-		log.Errorln("Error creating new point")
+		log.Errorln("Error creating new point: ", err)
 		return nil, err
 	}
 	return point, nil
