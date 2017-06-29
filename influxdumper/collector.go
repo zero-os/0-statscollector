@@ -90,7 +90,6 @@ func (in InfluxDumper) Dump() error {
 			log.Errorln("Error creating batchpoints: ", err)
 			return err
 		}
-		//batchPoints.SetRetentionPolicy(policy)
 
 		for len(batchPoints.Points()) < batch {
 			reply, err := redis.ByteSlices(con.Do("BLPOP", queue_min, queue_hour, 0))
@@ -119,14 +118,13 @@ func (in InfluxDumper) Dump() error {
 
 			hostname, err := os.Hostname()
 			if err != nil {
-				log.Errorln("Error getting hostname")
+				log.Errorln("Error getting hostname: ", err)
 				return err
 			}
 			tagsMap["node"] = hostname
 
 			keys := strings.Split(stats.Key, "@")
 			stats.Key = keys[0]
-			fmt.Println(stats)
 
 			if queue == queue_min {
 				if mPoint, err := NewPoint(
