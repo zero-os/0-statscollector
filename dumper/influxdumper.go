@@ -19,7 +19,7 @@ const (
 	queue_min  = "statistics:300"
 	queue_hour = "statistics:3600"
 	policy     = "dumper"
-	timeout    = 10
+	timeout    = 60
 )
 
 type statistics struct {
@@ -105,7 +105,6 @@ func (in *influxDumper) getBatchPoints(con redis.Conn) (influx.BatchPoints, erro
 		reply, err := redis.ByteSlices(con.Do("BLPOP", queue_min, queue_hour, timeout))
 		if err != nil {
 			if err == redis.ErrNil {
-				log.Infoln("Redis timedout...writing batchpoints")
 				return batchPoints, nil
 			}
 			log.Errorln("Error reading from redis: ", err)
