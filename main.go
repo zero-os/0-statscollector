@@ -55,6 +55,7 @@ func main() {
 		log.Println("Starting Influx Dumper")
 		if err := influxDumper.Start(); err != nil {
 			log.Errorln(err)
+			os.Exit(1)
 		}
 	}
 
