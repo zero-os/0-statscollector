@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 	"time"
-
+	"net/url"
 	log "github.com/Sirupsen/logrus"
 
 	"github.com/garyburd/redigo/redis"
@@ -61,7 +61,7 @@ func (in *influxDumper) Start() error {
 	}
 
 	q = influx.NewQuery(
-		fmt.Sprintf("CREATE RETENTION POLICY \"%v\" ON %v DURATION %v REPLICATION 1",
+		fmt.Sprintf("CREATE RETENTION POLICY \"%v\" ON %v DURATION %v REPLICATION 1 DEFAULT",
 			policy, in.Database, in.Retention), "", "")
 	_, err = in.handleRequest(q)
 	if err != nil {
@@ -126,7 +126,15 @@ func (in *influxDumper) getBatchPoints(con redis.Conn) (influx.BatchPoints, erro
 		tagsMap := make(map[string]string)
 		for _, tag := range tags {
 			result := strings.Split(tag, "=")
-			tagsMap[result[0]] = result[1]
+			key, err := url.QueryUnescape(result[0])
+			if err != nil {
+				continue
+			}
+			value, err := url.QueryUnescape(result[1])
+			if err != nil {
+				continue
+			}
+			tagsMap[key] = value
 		}
 
 		hostname, err := os.Hostname()
