@@ -3,11 +3,9 @@ package dumper
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
-	"time"
-	"net/url"
 	log "github.com/Sirupsen/logrus"
+	"os"
+	"time"
 
 	"github.com/garyburd/redigo/redis"
 	influx "github.com/influxdata/influxdb/client/v2"
@@ -29,7 +27,7 @@ type statistics struct {
 	Count int64
 	Start int64
 	Key   string
-	Tags  string
+	Tags  map[string]string
 }
 
 type influxDumper struct {
@@ -115,51 +113,29 @@ func (in *influxDumper) getBatchPoints(con redis.Conn) (influx.BatchPoints, erro
 		var stats statistics
 		if err := json.Unmarshal(reply[1], &stats); err != nil {
 			log.Errorln("Error unmarshaling redis reply: ", err)
-			return nil, err
-		}
-
-		tags := []string{}
-		if stats.Tags != "" {
-			tags = strings.Split(stats.Tags, " ")
-		}
-
-		tagsMap := make(map[string]string)
-		for _, tag := range tags {
-			result := strings.Split(tag, "=")
-			key, err := url.QueryUnescape(result[0])
-			if err != nil {
-				continue
-			}
-			value, err := url.QueryUnescape(result[1])
-			if err != nil {
-				continue
-			}
-			tagsMap[key] = value
+			continue
 		}
 
 		hostname, err := os.Hostname()
 		if err != nil {
 			log.Errorln("Error getting hostname: ", err)
-			return nil, err
+			hostname = "N/A"
 		}
-		tagsMap["node"] = hostname
-
-		keys := strings.Split(stats.Key, "@")
-		stats.Key = keys[0]
+		stats.Tags["node"] = hostname
 
 		if queue == queue_min {
 			if mPoint, err := newPoint(
-				fmt.Sprintf("%v|m", stats.Key), stats.Start, stats.Avg, stats.Max, tagsMap); err == nil {
+				fmt.Sprintf("%v|m", stats.Key), stats.Start, stats.Avg, stats.Max, stats.Tags); err == nil {
 				batchPoints.AddPoint(mPoint)
 			}
 
 			if tPoint, err := newPoint(
-				fmt.Sprintf("%v|t", stats.Key), stats.Start, stats.Total, stats.Max, tagsMap); err == nil {
+				fmt.Sprintf("%v|t", stats.Key), stats.Start, stats.Total, stats.Max, stats.Tags); err == nil {
 				batchPoints.AddPoint(tPoint)
 			}
 		} else {
 			if hPoint, err := newPoint(
-				fmt.Sprintf("%v|h", stats.Key), stats.Start, stats.Avg, stats.Max, tagsMap); err == nil {
+				fmt.Sprintf("%v|h", stats.Key), stats.Start, stats.Avg, stats.Max, stats.Tags); err == nil {
 				batchPoints.AddPoint(hPoint)
 			}
 		}
