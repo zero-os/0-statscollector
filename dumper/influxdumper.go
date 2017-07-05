@@ -17,7 +17,7 @@ const (
 	queue_min  = "statistics:300"
 	queue_hour = "statistics:3600"
 	policy     = "dumper"
-	timeout    = 60
+	timeout    = 30
 )
 
 type statistics struct {
@@ -81,6 +81,10 @@ func (in *influxDumper) dump() error {
 			return err
 		}
 
+		if len(batchPoints.Points()) == 0 {
+			continue
+		}
+		
 		if err := in.Client.Write(batchPoints); err != nil {
 			log.Errorln("Error writing points to influx db: ", err)
 		}
