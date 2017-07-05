@@ -1,0 +1,32 @@
+diff --git a/dumper/influxdumper.go b/dumper/influxdumper.go
+index 59fb433..9970779 100644
+--- a/dumper/influxdumper.go
++++ b/dumper/influxdumper.go
+@@ -6,7 +6,7 @@ import (
+ 	"os"
+ 	"strings"
+ 	"time"
+-
++	"net/url"
+ 	log "github.com/Sirupsen/logrus"
+ 
+ 	"github.com/garyburd/redigo/redis"
+@@ -126,7 +126,17 @@ func (in *influxDumper) getBatchPoints(con redis.Conn) (influx.BatchPoints, erro
+ 		tagsMap := make(map[string]string)
+ 		for _, tag := range tags {
+ 			result := strings.Split(tag, "=")
+-			tagsMap[result[0]] = result[1]
++			key, err := url.QueryUnescape(result[0])
++			if err != nil {
++				fmt.Println("EEROOROROROR")
++				continue
++			}
++			value, err := url.QueryUnescape(result[1])
++			if err != nil {
++				fmt.Println("EEROOROROROR")
++				continue
++			}
++			tagsMap[key] = value
+ 		}
+ 
+ 		hostname, err := os.Hostname()
