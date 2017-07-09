@@ -3,13 +3,20 @@ package dumper
 import (
 	"encoding/json"
 	"fmt"
-	log "github.com/Sirupsen/logrus"
+	"net"
+	"net/http"
 	"os"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
+
+	"crypto/tls"
+
+	"io/ioutil"
+
+	"github.com/dgrijalva/jwt-go"
 	"github.com/garyburd/redigo/redis"
 	influx "github.com/influxdata/influxdb/client/v2"
-	"github.com/zero-os/0-core/client/go-client"
 )
 
 const (
@@ -18,6 +25,12 @@ const (
 	queue_hour = "statistics:3600"
 	policy     = "dumper"
 	timeout    = 30
+	key        = `\
+-----BEGIN PUBLIC KEY-----
+MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAES5X8XrfKdx9gYayFITc89wad4usrk0n2
+7MjiGYvqalizeSWTHEpnd7oea9IQ8T5oJjMVH5cc0H5tFSKilFFeh//wngxIyny6
+6+Vq5t5B0V0Ehy01+2ceEon2Y0XDkIKv
+-----END PUBLIC KEY-----`
 )
 
 type statistics struct {
@@ -71,7 +84,7 @@ func (in *influxDumper) Start() error {
 }
 
 func (in *influxDumper) dump() error {
-	cl := client.NewPool(in.Node, in.JWT)
+	cl := newPool(in.Node, in.JWT)
 	con := cl.Get()
 	defer con.Close()
 
@@ -173,4 +186,85 @@ func newPoint(key string, timestamp int64, value float64, max float64, tags map[
 		return nil, err
 	}
 	return point, nil
+}
+
+func newPool(address, password string) *redis.Pool {
+	return &redis.Pool{
+		MaxIdle:     5,
+		IdleTimeout: 240 * time.Second,
+		Dial: func() (redis.Conn, error) {
+			// the redis protocol should probably be made sett-able
+			c, err := redis.Dial("tcp", address, redis.DialNetDial(func(network, address string) (net.Conn, error) {
+				return tls.Dial(network, address, &tls.Config{
+					InsecureSkipVerify: true,
+				})
+			}))
+
+			if err != nil {
+				return nil, err
+			}
+
+			if len(password) > 0 {
+				pub, err := jwt.ParseECPublicKeyFromPEM([]byte(key))
+				if err != nil {
+					return nil, fmt.Errorf("Failed to parse jwt public key: %v", err)
+				}
+
+				token, err := jwt.Parse(password, func(t *jwt.Token) (interface{}, error) {
+					m, ok := t.Method.(*jwt.SigningMethodECDSA)
+					if !ok {
+						return nil, fmt.Errorf("Unexpected signing method: %v", t.Header["alg"])
+					}
+					if t.Header["alg"] != m.Alg() {
+						return nil, fmt.Errorf("Unexpected signing algorithm: %v", t.Header["alg"])
+					}
+					return pub, nil
+				})
+
+				if token == nil && err != nil {
+					fmt.Errorf("Failed to parse jwt token: %v", err)
+				}
+				fmt.Println(token)
+				if !token.Valid {
+					if error_type, ok := err.(*jwt.ValidationError); ok {
+						if error_type.Errors&(jwt.ValidationErrorExpired) != 0 {
+							client := &http.Client{}
+							req, err := http.NewRequest("POST", "https://itsyou.online/v1/oauth/jwt/refresh?validity=3600", nil)
+							req.Header.Add("Authorization", fmt.Sprintf("bearer %s", password))
+							resp, err := client.Do(req)
+							if err != nil {
+								return nil, fmt.Errorf("Error refreshing jwt token: %v", err)
+							}
+
+							body, err := ioutil.ReadAll(resp.Body)
+							if err != nil {
+								return nil, fmt.Errorf("Error reading response body of refresh jwt token: %v", err)
+							}
+							password = string(body)
+						}
+					} else {
+						return nil, fmt.Errorf("Invalid jwt token: %v", err)
+					}
+				}
+				if _, err := c.Do("AUTH", password); err != nil {
+					c.Close()
+					return nil, err
+				}
+			} else {
+				// check with PING
+				if _, err := c.Do("PING"); err != nil {
+					c.Close()
+					return nil, err
+				}
+			}
+			return c, err
+		},
+		// custom connection test method
+		TestOnBorrow: func(c redis.Conn, t time.Time) error {
+			if _, err := c.Do("PING"); err != nil {
+				return err
+			}
+			return nil
+		},
+	}
 }
