@@ -224,7 +224,7 @@ func newPool(address, password string) *redis.Pool {
 				if token == nil && err != nil {
 					fmt.Errorf("Failed to parse jwt token: %v", err)
 				}
-				fmt.Println(token)
+
 				if !token.Valid {
 					if error_type, ok := err.(*jwt.ValidationError); ok {
 						if error_type.Errors&(jwt.ValidationErrorExpired) != 0 {
