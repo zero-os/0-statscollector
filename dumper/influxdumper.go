@@ -225,6 +225,27 @@ func refreshToken(password string) (string, error) {
 	return string(body), nil
 }
 
+func getToken(password string) (string, error) {
+	token, err := parseToken(password)
+	if token == nil && err != nil {
+		return "", fmt.Errorf("Failed to parse jwt token: %v", err)
+	}
+
+	if !token.Valid {
+		if error_type, ok := err.(*jwt.ValidationError); ok {
+			if error_type.Errors&(jwt.ValidationErrorExpired) != 0 {
+				password, err = refreshToken(password)
+				if err != nil {
+					return "", err
+				}
+			}
+		} else {
+			return "", fmt.Errorf("Invalid jwt token: %v", err)
+		}
+	}
+	return password, nil
+}
+
 func newPool(address, password string) *redis.Pool {
 	return &redis.Pool{
 		MaxIdle:     5,
@@ -242,22 +263,9 @@ func newPool(address, password string) *redis.Pool {
 			}
 
 			if len(password) > 0 {
-				token, err := parseToken(password)
-				if token == nil && err != nil {
-					return nil, fmt.Errorf("Failed to parse jwt token: %v", err)
-				}
-
-				if !token.Valid {
-					if error_type, ok := err.(*jwt.ValidationError); ok {
-						if error_type.Errors&(jwt.ValidationErrorExpired) != 0 {
-							password, err = refreshToken(password)
-							if err != nil {
-								return nil, err
-							}
-						}
-					} else {
-						return nil, fmt.Errorf("Invalid jwt token: %v", err)
-					}
+				password, err := getToken(password)
+				if err != nil {
+					return nil, err
 				}
 				if _, err := c.Do("AUTH", password); err != nil {
 					c.Close()
